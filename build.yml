@@ -1,0 +1,125 @@
+name: Build NEBULA HUB PKG
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Host-side deps (not needed inside the PS4 docker image) ──────────
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y curl unzip imagemagick dotnet-sdk-8.0 fonts-dejavu
+
+      # ── Build PkgTool.Core (host side — needs dotnet, PS4 image doesn't have it) ──
+      - name: Build PkgTool.Core
+        run: |
+          git clone --depth 1 https://github.com/OpenOrbis/LibOrbisPkg.git pkgtool_src
+          cd pkgtool_src
+          dotnet build PkgTool.Core/PkgTool.Core.csproj \
+            --configuration Release \
+            --output ../pkgtool_bin \
+            -p:TargetFramework=net8.0
+          cd ..
+          PKGTOOL_DLL=$(find pkgtool_bin -name "PkgTool.Core.dll" | head -1)
+          echo "PKGTOOL_DLL=$PKGTOOL_DLL" >> $GITHUB_ENV
+          echo "PkgTool built: $PKGTOOL_DLL"
+
+      # ── Fonts (host side) ─────────────────────────────────────────────────
+      - name: Get fonts
+        run: |
+          mkdir -p assets/fonts
+          curl -sfL -o assets/fonts/NotoSans-Regular.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Regular.ttf" || true
+          curl -sfL -o assets/fonts/NotoSans-Bold.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Bold.ttf" || true
+          [ ! -s assets/fonts/NotoSans-Regular.ttf ] && \
+            cp /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf assets/fonts/NotoSans-Regular.ttf || true
+          [ ! -s assets/fonts/NotoSans-Bold.ttf ] && \
+            cp /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf assets/fonts/NotoSans-Bold.ttf || true
+          ls -lh assets/fonts/
+
+      # ── Icons (host side) ─────────────────────────────────────────────────
+      - name: Generate app icons
+        run: |
+          mkdir -p sce_sys
+          convert -size 228x128 gradient:'#0D0D1A-#1A0A30' \
+            -font DejaVu-Sans-Bold -pointsize 18 \
+            -fill '#9B4FFF' -annotate +14+42 'NEBULA HUB' \
+            -fill '#AAAACC' -pointsize 13 \
+            -annotate +14+62 'Avatar & Theme Library' \
+            sce_sys/icon0.png
+          convert -size 1920x1080 gradient:'#07071A-#0A0A20' \
+            -font DejaVu-Sans-Bold -pointsize 96 \
+            -fill '#7B2FFF' -gravity Center -annotate +0-100 'NEBULA HUB' \
+            -font DejaVu-Sans -pointsize 36 \
+            -fill '#6666AA' -gravity Center \
+            -annotate +0+20 'The Ultimate PS4 Customization Library' \
+            sce_sys/pic0.png
+          cp sce_sys/pic0.png sce_sys/bg0.png
+          ls -lh sce_sys/
+
+      # ── Compile + link + FSELF + GP4 — ALL inside the official Docker image ──
+      - name: Build ELF / FSELF / GP4 (OpenOrbis Docker toolchain)
+        run: |
+          docker pull openorbisofficial/toolchain:latest
+
+          # Make the whole workspace writable so the container (running as
+          # a different internal user) can create .o files, eboot.elf, etc.
+          chmod -R 777 "$(pwd)"
+
+          docker run --rm \
+            -w /workspace \
+            -v "$(pwd)":/workspace \
+            openorbisofficial/toolchain:latest \
+            bash -c "echo '=== Searching entire image (not just toolchain dir) for ttf/freetype ===' && find / -iname '*ttf*' -o -iname '*freetype*' 2>/dev/null | grep -v '/proc/' && echo '=== Building ===' && make all"
+
+          echo "=== Build artifacts ==="
+          ls -lh eboot.elf eboot.bin project.gp4
+
+      # ── param.sfo (host side, via PkgTool.Core) ───────────────────────────
+      - name: Build param.sfo
+        run: |
+          dotnet "${{ env.PKGTOOL_DLL }}" sfo_new \
+            --title "NEBULA HUB" \
+            --title-id "NEBU00001" \
+            --app-ver "01.00" \
+            --sdk-ver "5050001" \
+            --category "gd" \
+            sce_sys/param.sfo
+          ls -lh sce_sys/param.sfo
+
+      # ── Final PKG build (host side, via PkgTool.Core) ─────────────────────
+      - name: Build PKG
+        run: |
+          dotnet "${{ env.PKGTOOL_DLL }}" pkg_build project.gp4 . nebulahub.pkg
+          echo "=============================="
+          echo "  PKG BUILT SUCCESSFULLY"
+          echo "=============================="
+          ls -lh nebulahub.pkg
+
+      - name: Upload PKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebulahub-pkg
+          path: nebulahub.pkg
+          retention-days: 90
+
+      - name: Create GitHub Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nebulahub.pkg
+          name: "NEBULA HUB ${{ github.ref_name }}"
+          body: |
+            PS4 homebrew — avatar & theme library.
+            Requires GoldHEN. Install via Package Installer.
