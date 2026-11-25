@@ -2,7 +2,7 @@
 // PS4 Homebrew | OpenOrbis Toolchain | SDL2
 
 #include "nebula.h"
-#include "ui/renderer.h"
+#include "renderer.h"
 #include "ui/screens.h"
 #include "net/fetcher.h"
 #include "db/database.h"
