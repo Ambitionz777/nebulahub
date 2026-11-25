@@ -70,13 +70,13 @@ LIBS := \
     -lc++
 
 SRCS := \
-    src/main.cpp \
-    src/db/database.cpp \
-    src/net/fetcher.cpp \
-    src/input/controller.cpp \
-    src/install/installer.cpp \
-    src/ui/renderer.cpp \
-    src/ui/screens.cpp
+    main.cpp \
+    database.cpp \
+    fetcher.cpp \
+    controller.cpp \
+    installer.cpp \
+    renderer.cpp \
+    screens.cpp
 
 OBJS := $(SRCS:.cpp=.o)
 
