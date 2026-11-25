@@ -71,12 +71,12 @@ LIBS := \
 
 SRCS := \
     main.cpp \
-    database.cpp \
-    fetcher.cpp \
+    db/database.cpp \
+    net/fetcher.cpp \
     controller.cpp \
     installer.cpp \
-    renderer.cpp \
-    screens.cpp
+    ui/renderer.cpp \
+    ui/screens.cpp
 
 OBJS := $(SRCS:.cpp=.o)
 
